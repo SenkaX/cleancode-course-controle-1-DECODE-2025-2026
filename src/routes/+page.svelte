@@ -1,70 +1,58 @@
 <script lang="ts">
+    import { fight, init, newRound, rerollWeapon } from "$lib";
+    import { GameStatus, type GameState, INITIAL_HEALTH, MAX_REROLLS } from "$lib/types";
 
-    import { fight, init, newRound } from "$lib";
+    let state: GameState | null = null;
 
-    let state: any = {
-        playerMaxHealth: null,
-        playerCurrentHealth: null,
-        enemyMaxHealth: null,
-        enemyCurrentHealth: null,
-        playerWeapon: null,
-        enemyWeapon: null,
-        hasInit: false,
-        hasRound: false,
-        hasFought: false,
-        playerWon: false,
-        playerLost: false
-    };
+    // --- Reactive status declarations ---
 
-    function triggerInit() {
-        state = init();
+    $: initialized = state !== null;
+    $: readyToFight = state?.status === GameStatus.READY_TO_FIGHT;
+    $: fought = state?.status === GameStatus.FOUGHT;
+    $: won = state?.status === GameStatus.WON;
+    $: lost = state?.status === GameStatus.LOST;
+    $: canReroll = readyToFight && (state?.rerollsUsed ?? MAX_REROLLS) < MAX_REROLLS;
+
+    // --- Actions ---
+
+    function triggerInit(): void {
+        state = { ...init() };
     }
 
-    function triggerNewRound() {
-        let response = null;
-        try {        
-            response = newRound(state.hasInit);
+    function triggerFight(): void {
+        if (!state) return;
+        try {
+            state = { ...fight(state) };
         } catch (error) {
             console.error(error);
         }
-
-        if(response !== null) {
-            state.playerWeapon = response.playerWeapon;
-            state.enemyWeapon = response.enemyWeapon;
-            state.hasRound = response.hasRound;
-            state.hasFought = response.hasFought;
-        }
-
     }
 
-    function triggerFight() {
-        let response = null;
-
-        try {        
-            response = fight(state.playerCurrentHealth, state.enemyCurrentHealth, state.playerWeapon, state.hasInit, state.hasRound, state.hasFought);
+    function triggerNewRound(): void {
+        if (!state) return;
+        try {
+            state = { ...newRound(state) };
         } catch (error) {
             console.error(error);
         }
-
-        if(response !== null) {
-            state.playerCurrentHealth = response[0];
-            state.enemyCurrentHealth = response[1];
-            state.enemyWeapon = response[2];
-            state.hasFought = response[3];
-            state.playerWon = response[4];
-            state.playerLost = response[5];
-        }
     }
 
+    function triggerReroll(): void {
+        if (!state) return;
+        try {
+            state = { ...rerollWeapon(state) };
+        } catch (error) {
+            console.error(error);
+        }
+    }
 </script>
 
-
 <section id="player" class="w-1/3">
-    {#if state.hasInit === true}
+    {#if initialized && state?.playerWeapon}
         <div class="flex flex-row items-center justify-between flex-wrap w-full">
             <div class="flex flex-col items-center justify-center w-full">
                 <h1 class="text-2xl font-bold">Player</h1>
-                <p class="text-lg">Health: {state.playerCurrentHealth} / {state.playerMaxHealth}</p>
+                <p class="text-lg">Health: {state.playerHealth} / {INITIAL_HEALTH}</p>
                 <p class="text-lg">Weapon name: {state.playerWeapon.name}</p>
                 <p class="text-lg">Weapon description: {state.playerWeapon.description}</p>
             </div>
@@ -73,36 +61,37 @@
 </section>
 
 <section id="action">
-    {#if state.hasInit === false}
+    {#if !initialized}
         <button class="btn btn-xl variant-filled-primary" on:click={triggerInit}>Start</button>
-    {:else}
-        {#if (state.hasRound === true && state.hasFought === true && state.playerWon === false && state.playerLost === false)}
-            <button class="btn btn-xl variant-filled-warning" on:click={triggerNewRound}>Next Round</button>
+
+    {:else if readyToFight}
+        <button class="btn btn-xl variant-filled-error" on:click={triggerFight}>Fight</button>
+        {#if canReroll}
+            <button class="btn btn-xl variant-filled-warning" on:click={triggerReroll}>
+                Reroll weapon ({MAX_REROLLS - (state?.rerollsUsed ?? 0)} left)
+            </button>
         {/if}
 
-        {#if (state.hasRound === true && state.hasFought === false && state.playerWon === false && state.playerLost === false)}
-            <button class="btn btn-xl variant-filled-error" on:click={triggerFight}>Fight</button>
-        {/if}
+    {:else if fought}
+        <button class="btn btn-xl variant-filled-warning" on:click={triggerNewRound}>Next Round</button>
 
-        {#if (state.hasRound === true && state.hasFought === true && state.playerWon === true && state.playerLost === false)}
-            <p class="p">You won !</p>
-            <button class="btn btn-xl variant-filled-primary" on:click={triggerInit}>Play again</button>
-        {/if}
+    {:else if won}
+        <p class="p">You won !</p>
+        <button class="btn btn-xl variant-filled-primary" on:click={triggerInit}>Play again</button>
 
-        {#if (state.hasRound === true && state.hasFought === true && state.playerWon === false && state.playerLost === true)}
-            <p class="p">You lost ...</p>
-            <button class="btn btn-xl variant-filled-primary" on:click={triggerInit}>Play again</button>
-        {/if}
+    {:else if lost}
+        <p class="p">You lost ...</p>
+        <button class="btn btn-xl variant-filled-primary" on:click={triggerInit}>Play again</button>
     {/if}
 </section>
 
 <section id="enemy" class="w-1/3">
-    {#if state.hasInit === true}
+    {#if initialized}
         <div class="flex flex-row items-center justify-between flex-wrap w-full">
             <div class="flex flex-col items-center justify-center w-full">
                 <h1 class="text-2xl font-bold">Enemy</h1>
-                <p class="text-lg">Health: {state.enemyCurrentHealth} / {state.enemyMaxHealth}</p>
-                {#if state.enemyWeapon !== null}
+                <p class="text-lg">Health: {state?.enemyHealth} / {INITIAL_HEALTH}</p>
+                {#if state?.enemyWeapon}
                     <p class="text-lg">Weapon name: {state.enemyWeapon.name}</p>
                     <p class="text-lg">Weapon description: {state.enemyWeapon.description}</p>
                 {/if}
